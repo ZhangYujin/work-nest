@@ -275,7 +275,11 @@ export default function WorkspacesPage() {
                   { value: 'updated_at', label: t.sort_updated },
                   { value: 'open_count', label: t.sort_count },
                 ]}
-                onChange={(value) => setFilterWithoutDebounce({ sort_by: value as WorkspaceFilter['sort_by'] })}
+                onChange={(value) => {
+                  const sortBy = value as WorkspaceFilter['sort_by'];
+                  const sortOrder = sortBy === 'name' ? 'asc' : 'desc';
+                  setFilterWithoutDebounce({ sort_by: sortBy, sort_order: sortOrder });
+                }}
               />
 
               <Button
