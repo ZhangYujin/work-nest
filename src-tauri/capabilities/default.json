@@ -1,0 +1,40 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capabilities for the desktop application",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "opener:default",
+    "dialog:default",
+    "dialog:allow-open",
+    "core:window:allow-start-dragging",
+    "core:event:default"
+  ],
+  "commands": [
+    "get_workspaces",
+    "get_workspace",
+    "create_workspace",
+    "update_workspace",
+    "delete_workspace",
+    "get_workspace_stats",
+    "open_workspace",
+    "read_workspace_json",
+    "write_workspace_json",
+    "check_tools_installed",
+    "get_tool_usage_stats",
+    "get_tags",
+    "create_tag",
+    "update_tag",
+    "delete_tag",
+    "get_setting",
+    "set_setting",
+    "get_all_settings",
+    "get_scan_directories",
+    "add_scan_directory",
+    "remove_scan_directory",
+    "update_scan_directory_depth",
+    "update_scan_directory_name",
+    "scan_directory"
+  ]
+}
