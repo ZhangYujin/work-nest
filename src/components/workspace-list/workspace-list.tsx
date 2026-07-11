@@ -165,26 +165,28 @@ export function WorkspaceList() {
                 <div className="flex items-center gap-3 text-xs text-muted-foreground">
                   <div
                     className="relative group/path min-w-0 max-w-full cursor-pointer hover:text-foreground transition-colors"
-                    onClick={() => handleCopyPath(workspace.path)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleCopyPath(workspace.path);
+                    }}
                     onMouseEnter={() => setHoveredPath(workspace.path)}
                     onMouseLeave={() => setHoveredPath(null)}
                   >
-                    <span className="truncate font-mono block flex items-center gap-1">
-                      {copiedPath === workspace.path ? (
-                        <>
-                          <Check className="h-3 w-3 text-green-500" />
-                          <span className="text-green-500">已复制</span>
-                        </>
-                      ) : (
-                        truncatePath(workspace.path)
-                      )}
+                    <span className="truncate font-mono block">
+                      {truncatePath(workspace.path)}
                     </span>
-                    {hoveredPath === workspace.path && copiedPath !== workspace.path && (
+                    {hoveredPath === workspace.path && (
                       <div className="absolute z-50 bottom-full left-0 mb-1 px-2 py-1 bg-popover text-popover-foreground text-xs rounded shadow border whitespace-nowrap pointer-events-none">
-                        点击复制：{workspace.path}
+                        {workspace.path}
                       </div>
                     )}
                   </div>
+                  {copiedPath === workspace.path && (
+                    <span className="flex items-center gap-1 text-green-500 shrink-0">
+                      <Check className="h-3 w-3" />
+                      已复制
+                    </span>
+                  )}
                   {workspace.last_opened_at && (
                     <span>{formatRelativeTime(workspace.last_opened_at)}</span>
                   )}

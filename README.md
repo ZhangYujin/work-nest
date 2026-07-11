@@ -4,6 +4,8 @@ A modern workspace manager for developers, built with Tauri 2.0.
 
 Quickly discover, organize, and open your project workspaces from a single native app — with integrated support for opencode, Claude Code, VS Code, IDEA, and terminal.
 
+![WorkNest](screenshot/ScreenShot.png)
+
 ## Features
 
 - **Workspace Management** — Add, edit, delete, and search workspaces with a smooth, debounced search experience

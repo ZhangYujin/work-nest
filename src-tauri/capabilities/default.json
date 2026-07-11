@@ -8,6 +8,7 @@
     "opener:default",
     "dialog:default",
     "dialog:allow-open",
+    "clipboard-manager:allow-write-text",
     "core:window:allow-start-dragging",
     "core:event:default"
   ],
@@ -15,6 +16,7 @@
     "get_workspaces",
     "get_workspace",
     "create_workspace",
+    "restore_workspace",
     "update_workspace",
     "delete_workspace",
     "get_workspace_stats",
