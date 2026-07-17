@@ -138,13 +138,18 @@ export function WorkspaceList() {
               className="group/row flex items-center justify-between rounded-lg border p-4 transition-colors hover:bg-accent"
             >
               <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-1 cursor-pointer" onClick={() => handleEdit(workspace)}>
+                <div className="flex items-center gap-2 mb-1">
                   <span className="text-muted-foreground">
                     {getProjectTypeIcon(workspace.project_type) === 'git' && <GitIcon className="h-4 w-4" />}
                     {getProjectTypeIcon(workspace.project_type) === 'multi_git' && <FolderKanban className="h-4 w-4" />}
                     {getProjectTypeIcon(workspace.project_type) === 'directory' && <Folder className="h-4 w-4" />}
                   </span>
-                  <span className="font-medium truncate hover:text-primary transition-colors">{workspace.name}</span>
+                  <span
+                    className="font-medium truncate hover:text-primary transition-colors cursor-pointer"
+                    onClick={() => handleEdit(workspace)}
+                  >
+                    {workspace.name}
+                  </span>
                   <span className={cn('rounded-full bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground')}>
                     {typeLabels[workspace.project_type] || workspace.project_type}
                   </span>

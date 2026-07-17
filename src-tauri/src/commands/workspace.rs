@@ -537,12 +537,15 @@ pub async fn open_workspace(
                 let script = format!(
                     r#"tell application "iTerm"
                         activate
-                        if not (exists window 1) then create window with default profile
-                        tell current window
-                            create tab with default profile
-                            tell current session
-                                write text "cd '{path}'{cmd}"
+                        if not (exists window 1) then
+                            create window with default profile
+                        else
+                            tell current window
+                                create tab with default profile
                             end tell
+                        end if
+                        tell current session of current window
+                            write text "cd '{path}'{cmd}"
                         end tell
                     end tell"#,
                     path = workspace_path.replace("'", "'\\''"),
@@ -551,10 +554,15 @@ pub async fn open_workspace(
                 let _ = Command::new("osascript").args(["-e", &script]).spawn();
             } else {
                 // Terminal AppleScript
+                // Note: `do script` must come before `activate`. When Terminal.app is not
+                // running, `activate` launches it and opens a startup window; `do script`
+                // then opens another window to run the command — resulting in two windows.
+                // Putting `do script` first lets it create the single window (launching the
+                // app if needed), and `activate` only brings it to the front.
                 let script = format!(
                     r#"tell application "Terminal"
-                        activate
                         do script "cd '{path}'{cmd}"
+                        activate
                     end tell"#,
                     path = workspace_path.replace("'", "'\\''"),
                     cmd = if cmd.is_empty() { "".to_string() } else { format!(" && {}", cmd) }
