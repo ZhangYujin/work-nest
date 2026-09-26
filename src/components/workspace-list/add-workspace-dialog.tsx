@@ -77,7 +77,7 @@ export default function AddWorkspaceDialog({ open, onOpenChange }: AddWorkspaceD
     );
   };
 
-  const handleSubmit = async () => {
+  const handleNormalSubmit = async () => {
     if (!path) return;
 
     setError(null);
@@ -143,6 +143,8 @@ export default function AddWorkspaceDialog({ open, onOpenChange }: AddWorkspaceD
     setSelectedTags([]);
     setError(null);
   };
+
+  const submitDisabled = !path;
 
   return (
     <>
@@ -262,7 +264,7 @@ export default function AddWorkspaceDialog({ open, onOpenChange }: AddWorkspaceD
           <Button variant="outline" onClick={() => onOpenChange(false)}>
             {t.cancel}
           </Button>
-          <Button onClick={handleSubmit} disabled={!path}>
+          <Button onClick={handleNormalSubmit} disabled={submitDisabled}>
             {t.add}
           </Button>
         </div>

@@ -58,3 +58,33 @@ export interface WorkspaceStats {
   multi_git_projects: number;
   directories: number;
 }
+
+export interface WorktreeProjectInput {
+  path: string;
+  base_branch: string;
+}
+
+export interface CreateWorktreeWorkspaceRequest {
+  parent_path: string;
+  name: string;
+  description?: string;
+  tools?: string[];
+  tags?: Tag[];
+  branch: string;
+  projects: WorktreeProjectInput[];
+}
+
+export interface WorktreeProjectResult {
+  path: string;
+  name: string;
+  worktree_path: string;
+  success: boolean;
+  error?: string;
+}
+
+export interface CreateWorktreeResult {
+  workspace: Workspace;
+  results: WorktreeProjectResult[];
+  success_count: number;
+  failure_count: number;
+}

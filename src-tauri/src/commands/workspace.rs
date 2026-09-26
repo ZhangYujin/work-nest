@@ -260,6 +260,299 @@ pub async fn create_workspace(
     Ok(workspace)
 }
 
+/// Run `git worktree add -b <branch> <worktree_path> <start_point>` from `repo_path`.
+/// If <start_point> does not resolve (e.g. `origin/master` missing) and it isn't already
+/// `master`, retry once with `master` as the start point. Other failures are returned as-is.
+fn run_git_worktree_add(
+    repo_path: &str,
+    branch: &str,
+    worktree_path: &str,
+    base_branch: &str,
+) -> std::result::Result<(), String> {
+    fn try_add(repo_path: &str, branch: &str, worktree_path: &str, start: &str) -> std::result::Result<(), String> {
+        let output = Command::new("git")
+            .args(["worktree", "add", "-b", branch, worktree_path, start])
+            .current_dir(repo_path)
+            .output()
+            .map_err(|e| format!("failed to run git: {}", e))?;
+
+        if output.status.success() {
+            Ok(())
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let msg = if !stderr.trim().is_empty() {
+                stderr.trim().to_string()
+            } else {
+                stdout.trim().to_string()
+            };
+            Err(msg)
+        }
+    }
+
+    match try_add(repo_path, branch, worktree_path, base_branch) {
+        Ok(()) => Ok(()),
+        Err(msg) if base_branch != "master" => {
+            // Only fall back when the base ref truly doesn't exist; avoid masking
+            // unrelated failures (branch already exists, path issues, etc.).
+            let lower = msg.to_lowercase();
+            let missing_ref = lower.contains("unknown revision")
+                || lower.contains("not a valid object name")
+                || lower.contains("invalid reference")
+                || lower.contains("bad revision")
+                || lower.contains("ambiguous argument")
+                || lower.contains("could not resolve")
+                || lower.contains("did not match any");
+
+            if missing_ref {
+                try_add(repo_path, branch, worktree_path, "master")
+            } else {
+                Err(msg)
+            }
+        }
+        Err(msg) => Err(msg),
+    }
+}
+
+#[tauri::command]
+pub async fn create_worktree_workspace(
+    db: State<'_, Database>,
+    request: CreateWorktreeWorkspaceRequest,
+) -> Result<CreateWorktreeResult> {
+    let parent = Path::new(&request.parent_path);
+    if !parent.is_dir() {
+        return Err(AppError::InvalidParameter(format!(
+            "parent path is not a directory: {}",
+            request.parent_path
+        )));
+    }
+
+    let name = request.name.trim().to_string();
+    if name.is_empty()
+        || name.contains('/')
+        || name.contains('\\')
+        || name == "."
+        || name == ".."
+        || name.contains('\0')
+    {
+        return Err(AppError::InvalidParameter("invalid workspace folder name".to_string()));
+    }
+
+    let branch = request.branch.trim();
+    if branch.is_empty() || branch.chars().any(|c| c.is_whitespace()) {
+        return Err(AppError::InvalidParameter("invalid branch name".to_string()));
+    }
+
+    if request.projects.is_empty() {
+        return Err(AppError::InvalidParameter("no git project selected".to_string()));
+    }
+
+    // Validate each project's base branch up front.
+    for project in &request.projects {
+        let base = project.base_branch.trim();
+        if base.is_empty() || base.chars().any(|c| c.is_whitespace()) {
+            return Err(AppError::InvalidParameter(format!(
+                "invalid base branch for project: {}",
+                project.path
+            )));
+        }
+    }
+
+    let target_path = parent.join(&name);
+    let target_path_str = target_path.to_string_lossy().to_string();
+
+    let conn = db.conn.lock().unwrap();
+
+    // Conflict checks against existing workspace rows (before touching the disk).
+    let active_exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM workspaces WHERE path = ? AND deleted = 0)",
+        params![target_path_str],
+        |row| row.get(0),
+    )?;
+    if active_exists {
+        return Err(AppError::AlreadyExists(target_path_str.clone()));
+    }
+    // The directory is created fresh; clear any stale soft-deleted row pointing here.
+    conn.execute(
+        "DELETE FROM workspaces WHERE path = ? AND deleted = 1",
+        params![target_path_str],
+    )?;
+
+    if target_path.exists() {
+        // Tolerate an existing but empty target directory: the user may have just
+        // created it via the OS directory picker. Reject only if it is non-empty,
+        // or if it is already tracked as an active workspace (checked above).
+        let is_empty = fs::read_dir(&target_path)
+            .map(|mut it| it.next().is_none())
+            .unwrap_or(false);
+        if !is_empty {
+            return Err(AppError::AlreadyExists(format!(
+                "target directory already exists and is not empty: {}",
+                target_path_str
+            )));
+        }
+    } else {
+        fs::create_dir_all(&target_path)?;
+    }
+
+    // Create a worktree (and new branch) for each selected git project.
+    let mut results: Vec<WorktreeProjectResult> = Vec::new();
+    for project in &request.projects {
+        let project_path = &project.path;
+        let base = project.base_branch.trim();
+        let repo_name = Path::new(project_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+
+        if repo_name.is_empty() {
+            results.push(WorktreeProjectResult {
+                path: project_path.clone(),
+                name: project_path.clone(),
+                worktree_path: String::new(),
+                success: false,
+                error: Some("invalid project path".to_string()),
+            });
+            continue;
+        }
+
+        let worktree_path = target_path.join(&repo_name);
+        let worktree_path_str = worktree_path.to_string_lossy().to_string();
+
+        let outcome = if !Path::new(project_path).is_dir() {
+            Err("project path is not a directory".to_string())
+        } else {
+            run_git_worktree_add(project_path, branch, &worktree_path_str, base)
+        };
+
+        match outcome {
+            Ok(()) => results.push(WorktreeProjectResult {
+                path: project_path.clone(),
+                name: repo_name,
+                worktree_path: worktree_path_str,
+                success: true,
+                error: None,
+            }),
+            Err(err) => results.push(WorktreeProjectResult {
+                path: project_path.clone(),
+                name: repo_name,
+                worktree_path: worktree_path_str,
+                success: false,
+                error: Some(err),
+            }),
+        }
+    }
+
+    let success_count = results.iter().filter(|r| r.success).count() as i64;
+    let failure_count = results.len() as i64 - success_count;
+
+    if success_count == 0 {
+        // All failed: clean up the empty target directory and abort.
+        let _ = fs::remove_dir_all(&target_path);
+        let first_err = results
+            .iter()
+            .find_map(|r| r.error.clone())
+            .unwrap_or_else(|| "all worktree creations failed".to_string());
+        return Err(AppError::InvalidParameter(format!(
+            "worktree creation failed for all projects: {}",
+            first_err
+        )));
+    }
+
+    // Build the workspace row (project_type auto-detected -> multi_git / git).
+    let mut workspace = Workspace::new(name, target_path_str);
+    workspace.description = request.description.unwrap_or_default();
+    workspace.tools = request.tools.unwrap_or_else(|| vec!["claude".to_string()]);
+    workspace.tags = request.tags.unwrap_or_default();
+    workspace.source = "manual".to_string();
+    workspace.project_type = crate::models::workspace::detect_project_type(&workspace.path);
+
+    let tools_json = serde_json::to_string(&workspace.tools)?;
+    let tags_json = serde_json::to_string(&workspace.tags)?;
+
+    // Write workspace.json to the workspace directory (same shape as create_workspace).
+    let workspace_json_path = target_path.join("workspace.json");
+    let workspace_json_content = serde_json::json!({
+        "name": workspace.name,
+        "description": workspace.description,
+        "status": workspace.status,
+        "tools": workspace.tools,
+        "tags": workspace.tags,
+    });
+    fs::write(
+        &workspace_json_path,
+        serde_json::to_string_pretty(&workspace_json_content).unwrap_or_else(|_| "{}".to_string()),
+    )?;
+
+    conn.execute(
+        "INSERT INTO workspaces (id, name, path, description, status, project_type, tools, tags, source, open_count, open_count_7d, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?)",
+        params![
+            workspace.id,
+            workspace.name,
+            workspace.path,
+            workspace.description,
+            workspace.status,
+            workspace.project_type,
+            tools_json,
+            tags_json,
+            workspace.source,
+            workspace.created_at,
+            workspace.updated_at,
+        ],
+    )?;
+
+    Ok(CreateWorktreeResult {
+        workspace,
+        results,
+        success_count,
+        failure_count,
+    })
+}
+
+/// List all local + remote branches of a git repo as short ref names
+/// (e.g. `master`, `origin/master`). Used to populate the per-project base-branch picker.
+#[tauri::command]
+pub async fn list_git_branches(repo_path: String) -> Result<Vec<String>> {
+    let path = Path::new(&repo_path);
+    if !path.is_dir() {
+        return Err(AppError::InvalidParameter(format!(
+            "project path is not a directory: {}",
+            repo_path
+        )));
+    }
+
+    let output = Command::new("git")
+        .args([
+            "for-each-ref",
+            "--format=%(refname:short)",
+            "refs/heads",
+            "refs/remotes",
+        ])
+        .current_dir(path)
+        .output()
+        .map_err(|e| AppError::Io(std::io::Error::new(std::io::ErrorKind::Other, format!("failed to run git: {}", e))))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let msg = stderr.trim();
+        return Err(AppError::InvalidParameter(format!(
+            "failed to list branches: {}",
+            if msg.is_empty() { "git error" } else { msg }
+        )));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let branches: Vec<String> = stdout
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty() && !l.ends_with("/HEAD") && l != "HEAD")
+        .collect();
+
+    Ok(branches)
+}
+
 #[tauri::command]
 pub async fn restore_workspace(
     db: State<'_, Database>,

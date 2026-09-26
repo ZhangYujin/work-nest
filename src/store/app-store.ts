@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 
-type Page = 'workspaces' | 'tags' | 'report' | 'settings';
+type Page = 'workspaces' | 'tags' | 'report' | 'settings' | 'multi_git_create';
 
 interface AppState {
   currentPage: Page;

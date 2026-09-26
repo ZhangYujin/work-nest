@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Plus, Search, ArrowUp, ArrowDown, ChevronDown } from 'lucide-react';
+import { Plus, Search, ArrowUp, ArrowDown, ChevronDown, FolderOpen, FolderKanban } from 'lucide-react';
 import { useWorkspaceStore } from '../../store/workspace-store';
+import { useAppStore } from '../../store/app-store';
 import { getScanDirectories } from '../../utils/commands';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
@@ -71,6 +72,7 @@ const FilterDropdown = ({
 
 export default function WorkspacesPage() {
   const { t } = useLocale();
+  const { setCurrentPage } = useAppStore();
   const filter = useWorkspaceStore(state => state.filter);
   const setFilter = useWorkspaceStore(state => state.setFilter);
   const setFilterWithoutDebounce = useWorkspaceStore(state => state.setFilterWithoutDebounce);
@@ -83,6 +85,16 @@ export default function WorkspacesPage() {
   const [localSearch, setLocalSearch] = useState(filter.search || '');
   const searchInputRef = useRef<HTMLInputElement>(null);
   const debounceTimerRef = useRef<number | undefined>(undefined);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (addMenuRef.current && !addMenuRef.current.contains(e.target as Node)) setAddMenuOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   const tools = [
     { key: 'opencode', name: 'Opencode' },
@@ -186,10 +198,37 @@ export default function WorkspacesPage() {
               <h1 className="text-2xl font-semibold tracking-tight">{t.workspace_title}</h1>
               <p className="text-xs text-muted-foreground mt-1">{t.workspace_subtitle}</p>
             </div>
-            <Button size="sm" onClick={() => setAddDialogOpen(true)}>
-              <Plus className="mr-1 h-4 w-4" />
-              {t.add_workspace}
-            </Button>
+            <div className="relative" ref={addMenuRef}>
+              <Button size="sm" onClick={() => setAddMenuOpen(!addMenuOpen)}>
+                <Plus className="mr-1 h-4 w-4" />
+                {t.workspaces}
+                <ChevronDown className="ml-1.5 h-3.5 w-3.5 opacity-70" />
+              </Button>
+              {addMenuOpen && (
+                <div className="absolute right-0 top-full z-50 mt-1 min-w-[180px] rounded-md border border-border bg-background py-1 shadow-lg">
+                  <button
+                    onClick={() => {
+                      setAddMenuOpen(false);
+                      setAddDialogOpen(true);
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground/80 hover:bg-accent"
+                  >
+                    <FolderOpen className="h-4 w-4 text-muted-foreground" />
+                    {t.add_normal}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setAddMenuOpen(false);
+                      setCurrentPage('multi_git_create');
+                    }}
+                    className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-foreground/80 hover:bg-accent"
+                  >
+                    <FolderKanban className="h-4 w-4 text-muted-foreground" />
+                    {t.add_multi_git}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Search and Filters */}
