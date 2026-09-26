@@ -1,13 +1,14 @@
 use crate::db::Database;
 use crate::errors::{AppError, Result};
 use crate::models::settings::{ScanDirectory, Setting};
+use crate::models::workspace::{Tag, Workspace, detect_project_type};
 use rusqlite::params;
 use tauri::State;
 use tauri::Emitter;
 use std::fs;
 use std::path::Path;
-use crate::models::workspace::{Workspace, detect_project_type};
 use serde::Serialize;
+use serde_json::Value;
 
 #[tauri::command]
 pub async fn get_setting(db: State<'_, Database>, key: String) -> Result<Option<String>> {
@@ -126,6 +127,53 @@ pub async fn update_scan_directory_name(db: State<'_, Database>, id: String, nam
     let conn = db.conn.lock().unwrap();
     conn.execute("UPDATE scan_directories SET name = ? WHERE id = ?", params![name, id])?;
     Ok(())
+}
+
+/// Read workspace.json at `path` (if present) and build the canonical field
+/// values that should be mirrored into the database. Returns the parsed JSON
+/// plus the resolved fields; fields absent from the JSON fall back to the
+/// existing `workspace` values so only present fields drive reconciliation.
+fn read_workspace_fields(path: &str, workspace: &Workspace) -> (Option<Value>, Workspace) {
+    let workspace_json_path = Path::new(path).join("workspace.json");
+    let mut resolved = workspace.clone();
+
+    let json = if workspace_json_path.exists() {
+        fs::read_to_string(&workspace_json_path)
+            .ok()
+            .and_then(|content| serde_json::from_str::<Value>(&content).ok())
+    } else {
+        None
+    };
+
+    if let Some(ref json) = json {
+        if let Some(n) = json.get("name").and_then(|v| v.as_str()) {
+            resolved.name = n.to_string();
+        }
+        if let Some(d) = json.get("description").and_then(|v| v.as_str()) {
+            resolved.description = d.to_string();
+        }
+        if let Some(s) = json.get("status").and_then(|v| v.as_str()) {
+            resolved.status = s.to_string();
+        }
+        if let Some(t) = json.get("tools").and_then(|v| v.as_array()) {
+            resolved.tools = t.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect();
+        }
+        if let Some(t) = json.get("tags").and_then(|v| v.as_array()) {
+            resolved.tags = t
+                .iter()
+                .filter_map(|v| {
+                    let name = v.get("name")?.as_str()?.to_string();
+                    let color = v.get("color")?.as_str()?.to_string();
+                    Some(Tag { name, color })
+                })
+                .collect();
+        }
+    }
+
+    // project_type always reflects the current filesystem layout.
+    resolved.project_type = detect_project_type(path);
+
+    (json, resolved)
 }
 
 fn scan_directory_recursive(
@@ -276,7 +324,12 @@ pub async fn scan_directory(
 
                     let mut workspace = Workspace::new(name.clone(), path.clone());
                     workspace.source = "scan".to_string();
-                    workspace.project_type = detect_project_type(path);
+                    // Apply workspace.json overrides (name/description/status/tools/tags)
+                    // and detect project_type from the filesystem, same path as the
+                    // reconciliation branch so newly-scanned rows match.
+                    let (_json, resolved) = read_workspace_fields(path, &workspace);
+                    workspace = resolved;
+                    workspace.source = "scan".to_string();
 
                     let tools_json = serde_json::to_string(&workspace.tools).unwrap();
                     let tags_json = serde_json::to_string(&workspace.tags).unwrap();
@@ -304,19 +357,69 @@ pub async fn scan_directory(
                 }
             } else {
                 unchanged_count += 1;
-                // 对于已存在的工作空间，更新项目类型
-                let current_project_type: String = conn.query_row(
-                    "SELECT project_type FROM workspaces WHERE path = ?",
+                // Reconcile an existing workspace: re-read workspace.json (the
+                // on-disk source of truth for name/description/status/tools/tags)
+                // and re-detect project_type, repairing any drift in the DB.
+                let (id, name, description, status, project_type, tools_str, tags_str): (
+                    String, String, String, String, String, String, String,
+                ) = conn.query_row(
+                    "SELECT id, name, description, status, project_type, tools, tags FROM workspaces WHERE path = ?",
                     params![path],
-                    |row| row.get(0),
+                    |row| {
+                        Ok((
+                            row.get(0)?,
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                            row.get(6)?,
+                        ))
+                    },
                 )?;
 
-                let new_project_type = detect_project_type(path);
+                let current_tools: Vec<String> = serde_json::from_str(&tools_str).unwrap_or_default();
+                let current_tags: Vec<Tag> = serde_json::from_str(&tags_str).unwrap_or_default();
+                let current = Workspace {
+                    id: id.clone(),
+                    name,
+                    path: path.clone(),
+                    description,
+                    status,
+                    project_type,
+                    tools: current_tools,
+                    tags: current_tags,
+                    source: String::new(),
+                    open_count: 0,
+                    open_count_7d: 0,
+                    created_at: String::new(),
+                    updated_at: String::new(),
+                    last_opened_at: None,
+                };
 
-                if current_project_type != new_project_type {
+                let (_json, resolved) = read_workspace_fields(path, &current);
+
+                let needs_update = resolved.name != current.name
+                    || resolved.description != current.description
+                    || resolved.status != current.status
+                    || resolved.project_type != current.project_type
+                    || resolved.tools != current.tools
+                    || resolved.tags != current.tags;
+
+                if needs_update {
+                    let tools_json = serde_json::to_string(&resolved.tools).unwrap();
+                    let tags_json = serde_json::to_string(&resolved.tags).unwrap();
                     conn.execute(
-                        "UPDATE workspaces SET project_type = ?, updated_at = datetime('now') WHERE path = ?",
-                        params![new_project_type, path],
+                        "UPDATE workspaces SET name = ?, description = ?, status = ?, project_type = ?, tools = ?, tags = ?, updated_at = datetime('now') WHERE path = ?",
+                        params![
+                            resolved.name,
+                            resolved.description,
+                            resolved.status,
+                            resolved.project_type,
+                            tools_json,
+                            tags_json,
+                            path,
+                        ],
                     )?;
                 }
             }

@@ -460,7 +460,10 @@ pub async fn create_worktree_workspace(
         )));
     }
 
-    // Build the workspace row (project_type auto-detected -> multi_git / git).
+    // Build the workspace row. detect_project_type classifies by filesystem
+    // layout: any child git dir -> multi_git; self is git -> git; else directory.
+    // For the multi-git creation flow each successful worktree is a child git
+    // dir, so this resolves to multi_git as long as >= 1 worktree was created.
     let mut workspace = Workspace::new(name, target_path_str);
     workspace.description = request.description.unwrap_or_default();
     workspace.tools = request.tools.unwrap_or_else(|| vec!["claude".to_string()]);
