@@ -42,7 +42,7 @@ impl ToString for ProjectType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Tag {
     pub name: String,
     pub color: String,
@@ -66,32 +66,34 @@ pub struct Workspace {
     pub last_opened_at: Option<String>,
 }
 
+/// Classify a workspace directory:
+/// - `multi_git`: the directory has one or more child directories that are git repos.
+/// - `git`: the directory itself is a git repo, but none of its children are.
+/// - `directory`: otherwise.
+///
+/// A child is considered a git repo if it contains a `.git` entry (either a
+/// directory, as in a normal clone, or a file, as created by `git worktree add`).
 pub fn detect_project_type(path: &str) -> String {
     let path = Path::new(path);
-    let mut git_count = 0;
 
+    // Whether the path itself is a git repo (has a .git entry at top level).
+    let self_is_git = path.join(".git").exists();
+
+    // Count immediate child directories that are git repos.
+    let mut child_git_count = 0;
     if let Ok(entries) = fs::read_dir(path) {
         for entry in entries.flatten() {
             if let Ok(file_type) = entry.file_type() {
-                if file_type.is_dir() && entry.file_name() == ".git" {
-                    return "git".to_string();
-                }
-                if file_type.is_dir() {
-                    if let Ok(sub_entries) = fs::read_dir(entry.path()) {
-                        for sub_entry in sub_entries.flatten() {
-                            if sub_entry.file_name() == ".git" {
-                                git_count += 1;
-                            }
-                        }
-                    }
+                if file_type.is_dir() && entry.path().join(".git").exists() {
+                    child_git_count += 1;
                 }
             }
         }
     }
 
-    if git_count > 1 {
+    if child_git_count > 0 {
         "multi_git".to_string()
-    } else if git_count == 1 {
+    } else if self_is_git {
         "git".to_string()
     } else {
         "directory".to_string()
