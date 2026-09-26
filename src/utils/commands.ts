@@ -4,11 +4,17 @@ import type {
   WorkspaceFilter,
   WorkspaceStats,
   CreateWorkspaceRequest,
+  CreateWorktreeWorkspaceRequest,
+  CreateWorktreeResult,
   UpdateWorkspaceRequest,
   Tag,
   ScanDirectory,
   Setting,
 } from '../types';
+
+// Git commands
+export const listGitBranches = (repoPath: string): Promise<string[]> =>
+  invoke('list_git_branches', { repoPath });
 
 // Workspace commands
 export const getWorkspaces = (filter?: WorkspaceFilter): Promise<Workspace[]> =>
@@ -19,6 +25,9 @@ export const getWorkspace = (id: string): Promise<Workspace> =>
 
 export const createWorkspace = (request: CreateWorkspaceRequest): Promise<Workspace> =>
   invoke('create_workspace', { request });
+
+export const createWorktreeWorkspace = (request: CreateWorktreeWorkspaceRequest): Promise<CreateWorktreeResult> =>
+  invoke('create_worktree_workspace', { request });
 
 export const restoreWorkspace = (request: CreateWorkspaceRequest): Promise<Workspace> =>
   invoke('restore_workspace', { request });

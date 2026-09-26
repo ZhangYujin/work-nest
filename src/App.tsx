@@ -7,6 +7,7 @@ import WorkspacesPage from './components/workspace-list/workspaces-page';
 import TagsPage from './components/tags/tags-page';
 import ReportPage from './components/report/report-page';
 import SettingsPage from './components/settings/settings-page';
+import MultiGitCreatePage from './components/workspace-list/multi-git-create-page';
 import { getSetting } from './utils/commands';
 
 function App() {
@@ -50,6 +51,8 @@ function App() {
         return <ReportPage />;
       case 'settings':
         return <SettingsPage />;
+      case 'multi_git_create':
+        return <MultiGitCreatePage />;
       default:
         return <WorkspacesPage />;
     }

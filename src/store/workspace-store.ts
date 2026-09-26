@@ -1,9 +1,17 @@
 import { create } from 'zustand';
-import type { Workspace, WorkspaceStats, WorkspaceFilter, Tag } from '../types';
+import type {
+  Workspace,
+  WorkspaceStats,
+  WorkspaceFilter,
+  Tag,
+  CreateWorktreeWorkspaceRequest,
+  CreateWorktreeResult,
+} from '../types';
 import {
   getWorkspaces,
   getWorkspaceStats,
   createWorkspace,
+  createWorktreeWorkspace,
   restoreWorkspace,
   updateWorkspace,
   deleteWorkspace,
@@ -25,6 +33,7 @@ interface WorkspaceState {
   setFilter: (filter: Partial<WorkspaceFilter>) => void;
   setFilterWithoutDebounce: (filter: Partial<WorkspaceFilter>) => void;
   addWorkspace: typeof createWorkspace;
+  addWorktreeWorkspace: (request: CreateWorktreeWorkspaceRequest) => Promise<CreateWorktreeResult>;
   restoreWorkspace: typeof restoreWorkspace;
   updateWorkspace: typeof updateWorkspace;
   deleteWorkspace: typeof deleteWorkspace;
@@ -93,6 +102,14 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   addWorkspace: async (request) => {
     const result = await createWorkspace(request);
     set({ lastAddedWorkspaceName: result.name });
+    await get().fetchWorkspaces();
+    await get().fetchStats();
+    return result;
+  },
+
+  addWorktreeWorkspace: async (request) => {
+    const result = await createWorktreeWorkspace(request);
+    set({ lastAddedWorkspaceName: result.workspace.name });
     await get().fetchWorkspaces();
     await get().fetchStats();
     return result;

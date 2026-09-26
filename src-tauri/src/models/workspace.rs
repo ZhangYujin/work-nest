@@ -161,3 +161,37 @@ pub struct WorkspaceStats {
     pub multi_git_projects: i64,
     pub directories: i64,
 }
+
+#[derive(Debug, Deserialize)]
+pub struct WorktreeProjectInput {
+    pub path: String,
+    pub base_branch: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateWorktreeWorkspaceRequest {
+    pub parent_path: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub tools: Option<Vec<String>>,
+    pub tags: Option<Vec<Tag>>,
+    pub branch: String,
+    pub projects: Vec<WorktreeProjectInput>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct WorktreeProjectResult {
+    pub path: String,
+    pub name: String,
+    pub worktree_path: String,
+    pub success: bool,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateWorktreeResult {
+    pub workspace: Workspace,
+    pub results: Vec<WorktreeProjectResult>,
+    pub success_count: i64,
+    pub failure_count: i64,
+}

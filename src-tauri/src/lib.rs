@@ -41,6 +41,8 @@ pub fn run() {
             commands::workspace::get_workspaces,
             commands::workspace::get_workspace,
             commands::workspace::create_workspace,
+            commands::workspace::create_worktree_workspace,
+            commands::workspace::list_git_branches,
             commands::workspace::restore_workspace,
             commands::workspace::update_workspace,
             commands::workspace::delete_workspace,
